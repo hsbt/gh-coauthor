@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+DEBUG=${COAUTHOR_DEBUG:-}
+
+trap 'fail "Unexpected error on line $LINENO ($?)"' ERR
+
+if ! command -v git >/dev/null 2>&1; then
+  echo "Error: git command not found" >&2
+  exit 1
+fi
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "Error: gh command not found. Please install GitHub CLI: https://cli.github.com" >&2
+  exit 1
+fi
+
+debug() {
+  if [[ -n "$DEBUG" ]]; then
+    echo "Debug: $*" >&2
+  fi
+}
+
+fail() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+find_email_in_git_log() {
+  local name=$1
+  debug "Looking for email for '$name' in git log"
+  
+  # Try to find matching author in git log
+  local git_email
+  git_email=$(git log --format="%an|%ae" | grep -i "^$name|" | head -n 1 | cut -d'|' -f2)
+  
+  if [ -n "$git_email" ]; then
+    debug "Found email in git log: $git_email"
+    echo "$git_email"
+    return 0
+  fi
+  
+  # If exact match not found, try a fuzzy match
+  git_email=$(git log --format="%an|%ae" | grep -i "$name" | head -n 1 | cut -d'|' -f2)
+  
+  if [ -n "$git_email" ]; then
+    debug "Found email with fuzzy match in git log: $git_email"
+    echo "$git_email"
+    return 0
+  fi
+  
+  return 1
+}
+
+cmd_add() {
+  local username=$1
+  
+  if [ -z "$username" ]; then
+    cmd_help
+    exit 1
+  fi
+
+  debug "Adding co-author: $username"
+
+  # Fetch user info from GitHub API
+  local api_resp
+  api_resp=$(gh api "/users/$username") || fail "Failed to get user info for $username"
+  
+  local id name email
+  id=$(echo "$api_resp" | jq -r .id)
+  name=$(echo "$api_resp" | jq -r .name)
+  email=$(echo "$api_resp" | jq -r .email)
+
+  # If email is not available, try to find it in git log first
+  if [ -z "$email" ] || [ "$email" = "null" ]; then
+    debug "No email found in GitHub API response"
+    if [ -n "$name" ] && [ "$name" != "null" ]; then
+      email=$(find_email_in_git_log "$name") || true
+    fi
+    
+    # If still no email, use GitHub's noreply email format
+    if [ -z "$email" ] || [ "$email" = "null" ]; then
+      debug "Using GitHub noreply email format"
+      email="$id+$username@users.noreply.github.com"
+    fi
+  fi
+
+  # Get current commit message
+  local title body
+  title=$(git show -s --format=%s)
+  body=$(git show -s --format=%b)
+
+  # Add co-author to commit
+  debug "Amending commit with co-author: $name <$email>"
+  git commit --amend -m "$title" -m "$body" -m "Co-authored-by: $name <$email>"
+
+  echo "✓ Added $name as co-author to the latest commit"
+}
+
+cmd_version() {
+  echo "gh-coauthor ${VERSION}"
+}
+
+cmd_help() {
+  cat <<'EOF'
+Add a GitHub user as co-author to the latest commit.
+
+USAGE
+  gh coauthor [command] <username>
+
+COMMANDS
+  <username>  (default) Add the specified GitHub user as co-author to the latest commit
+  version     Show gh-coauthor version
+
+EXAMPLES
+  gh coauthor pocke        # Add 'pocke' as co-author to the latest commit
+  gh coauthor version      # Show version
+
+ENVIRONMENT
+  COAUTHOR_DEBUG=1         # Enable debug output
+EOF
+}
+
+cmd_completion() {
+  cat <<'EOF'
+# bash completion for gh coauthor
+
+_gh_coauthor() {
+  local cur prev
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  case "$prev" in
+    coauthor)
+      COMPREPLY=( $(compgen -W "version --help" -- "$cur") )
+      return 0
+      ;;
+  esac
+
+  return 0
+}
+
+complete -F _gh_coauthor gh-coauthor
+EOF
+}
+
+case "${1:-}" in
+  "" | "-h" | "--help")  cmd_help ;;
+  "version")             cmd_version ;;
+  "completion")          cmd_completion ;;
+  *)                     cmd_add "$1" ;;
+esac
