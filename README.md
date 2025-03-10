@@ -84,6 +84,39 @@ gh coauthor version
    - Falls back to GitHub's noreply email format
 3. Amends the most recent commit to add the co-author trailer
 
+## Development
+
+### Testing
+
+This project uses [Bats](https://github.com/bats-core/bats-core) (Bash Automated Testing System) for testing.
+
+To run the tests:
+
+1. Install Bats:
+   ```bash
+   # On macOS with Homebrew
+   brew install bats-core
+   
+   # On Ubuntu
+   sudo apt-get install bats
+   
+   # Or from source
+   git clone https://github.com/bats-core/bats-core.git
+   cd bats-core
+   ./install.sh /usr/local
+   ```
+
+2. Run the tests:
+   ```bash
+   bats test/
+   ```
+
+The test suite includes tests for:
+- Basic functionality verification
+- Command options and flags
+- Error handling
+- Email fallback mechanisms
+
 ## Acknowledgments
 
 The original script for this tool was created by [pocke](https://github.com/pocke) and is available at [https://gist.github.com/pocke/c54be87893aefa2be76abe1b2a4cdca5](https://gist.github.com/pocke/c54be87893aefa2be76abe1b2a4cdca5).
